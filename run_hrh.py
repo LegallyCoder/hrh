@@ -23,6 +23,10 @@ def stage_brain(a):
     from hrh import data as pr
     from hrh import brain
     for s in a.subjects.split(","):
+        dest = os.path.join(a.out, "brain", f"brain_{s}.npz")
+        if os.path.exists(dest):                     # finished: no download needed
+            print("[brain] exists", dest)
+            continue
         path = pr.download_subject(s, a.eeg_dir)
         print("[brain]", brain.build_subject(s, path, os.path.join(a.out, "brain"),
                                              smooth=a.smooth))

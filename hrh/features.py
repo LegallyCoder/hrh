@@ -254,14 +254,43 @@ def _hf_forward(net, x, video: bool):
 
 def extract_grams(name: str, img_paths: list[str], device: str, out_dir: str,
                   batch: int | None = None) -> str:
-    """Hook every block, pool, and save Gram matrices. Returns the .npz path."""
+    """Hook every block, pool, and save Gram matrices. Returns the .npz path.
+
+    Half precision first; if the GPU has no kernel for a layer in half precision
+    (cuDNN "unable to find an engine", seen for ConvNeXt V2 on T4), retry in full
+    precision, and finally with cuDNN disabled."""
+    import gc
+
+    import torch
+    dest = os.path.join(out_dir, f"{name.replace(':', '_').replace('/', '_')}.npz")
+    if os.path.exists(dest):
+        return dest
+    attempts = [(True, True), (False, True), (False, False)]          # (amp, cudnn)
+    for k, (amp, cudnn) in enumerate(attempts):
+        torch.backends.cudnn.enabled = cudnn
+        try:
+            return _extract(name, img_paths, device, out_dir, batch, amp)
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            if k == len(attempts) - 1 or not ("engine" in msg or "cudnn" in msg):
+                raise
+            print(f"[features] {name}: retrying (amp={attempts[k + 1][0]}, "
+                  f"cudnn={attempts[k + 1][1]}) after: {exc}", flush=True)
+            gc.collect()
+            if device.startswith("cuda"):
+                torch.cuda.empty_cache()
+        finally:
+            torch.backends.cudnn.enabled = True
+    return dest
+
+
+def _extract(name: str, img_paths: list[str], device: str, out_dir: str,
+             batch: int | None, amp: bool) -> str:
     import torch
     from PIL import Image
 
     os.makedirs(out_dir, exist_ok=True)
     dest = os.path.join(out_dir, f"{name.replace(':', '_').replace('/', '_')}.npz")
-    if os.path.exists(dest):
-        return dest
     net, tf, hook_mods, prefix = _load(name, device)
     store: dict[str, dict[str, list]] = {n: {} for n, _ in hook_mods}
     handles = []
@@ -273,7 +302,7 @@ def extract_grams(name: str, img_paths: list[str], device: str, out_dir: str,
 
     if batch is None:
         batch = 8 if PARAMS.get(name, 0) > 900 else 16 if PARAMS.get(name, 0) > 250 else 50
-    use_amp = device.startswith("cuda")
+    use_amp = amp and device.startswith("cuda")
     amp_dtype = (torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16)
     hf = name.startswith("hf:")
     video = hf and getattr(net.config, "model_type", "") == "vjepa2"
