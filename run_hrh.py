@@ -9,6 +9,7 @@
   python run_hrh.py proxies                                # brain-free proxies for every model
   python run_hrh.py law                                    # fit + freeze the law (development models)
   python run_hrh.py predict                                # held-out predictions + hash to register
+  python run_hrh.py paper                                  # figures, tables, macros for the paper
   python run_hrh.py analyze  --pool gap                    # one pooling only (exploration)
 """
 from __future__ import annotations
@@ -161,6 +162,13 @@ def stage_predict(a):
     print(f"[predict] sha256 {digest}")
 
 
+def stage_paper(a):
+    """Figures, tables and macros for the paper from the pipeline outputs (CPU, seconds)."""
+    from hrh import paper_v2
+    out = paper_v2.build(a.out, a.paper, a.registration)
+    print("[paper] law test:", (out["law_test"].get("verdict") or {}).get("label"))
+
+
 def stage_figures(a):
     from hrh import evaluate as ev
     ev.write_synthetic_assets(a.paper)
@@ -170,7 +178,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="stage", required=True)
     p = {n: sub.add_parser(n) for n in ("brain", "features", "analyze", "eval", "figures",
-                                         "proxies", "law", "predict")}
+                                         "proxies", "law", "predict", "paper")}
     for n in ("brain", "features", "analyze", "eval", "proxies", "law", "predict"):
         p[n].add_argument("--out", default="results")
     for n in ("proxies", "law", "predict"):
@@ -178,8 +186,10 @@ def main():
     p["proxies"].add_argument("--img-dir", default="data/things/test_images")
     p["proxies"].add_argument("--categories", default="data/things/category53_wide-format.tsv")
     p["predict"].add_argument("--reg-dir", default="registration")
-    for n in ("eval", "figures"):
+    for n in ("eval", "figures", "paper"):
         p[n].add_argument("--paper", default="paper")
+    p["paper"].add_argument("--out", default="results")
+    p["paper"].add_argument("--registration", default="registration/predictions_heldout.json")
     for n in ("analyze", "eval"):
         p[n].add_argument("--n-depth", type=int, default=8)
         p[n].add_argument("--n-boot", type=int, default=1000)

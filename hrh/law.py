@@ -129,3 +129,38 @@ def law_verdict(rho: dict, diff: dict) -> dict:
           for w in ("early", "late")}
     label = "supported" if all(ok.values()) else "partial" if any(ok.values()) else "not supported"
     return {"label": label, **{f"{w}_ok": bool(v) for w, v in ok.items()}}
+
+
+# ---------------------------------------------------------------------------
+# Exploratory: which components carry the law (run after the registered test)
+# ---------------------------------------------------------------------------
+
+ABLATIONS = {"low-level only": ("L_max",), "semantic only": ("S_max",),
+             "spectral only": ("mismatch2",), "low-level + semantic": ("L_max", "S_max"),
+             "full law": ("L_max", "S_max", "mismatch2")}
+
+
+def _design_sub(px: dict, b: float, feats) -> np.ndarray:
+    full = dict(zip(FEATURES, design(px, b)))
+    return np.array([1.0] + [full[f] for f in feats])
+
+
+def fit_subset(proxies: dict, scores: dict, family: dict, feats, window: str) -> dict:
+    """Same procedure as fit() for one window, restricted to a feature subset."""
+    models = sorted(m for m in proxies if m in scores)
+    y = {m: scores[m][window] for m in models}
+    grid = B_GRID if "mismatch2" in feats else [1.0]
+    cv = {}
+    for b in grid:
+        pred = _lofo(models, family, lambda m, b=b: _design_sub(proxies[m], b, feats), y)
+        cv[float(b)] = float(np.mean([(y[m] - pred[m]) ** 2 for m in pred]))
+    b = min(cv, key=cv.get)
+    coef = _ols(np.stack([_design_sub(proxies[m], b, feats) for m in models]),
+                np.array([y[m] for m in models]))
+    pred = _lofo(models, family, lambda m: _design_sub(proxies[m], b, feats), y)
+    return {"b": b, "coef": coef.tolist(), "feats": list(feats),
+            "cv_spearman": _cv_stats(pred, y)["spearman"]}
+
+
+def predict_subset(spec: dict, px: dict) -> float:
+    return float(_design_sub(px, spec["b"], spec["feats"]) @ np.array(spec["coef"]))
