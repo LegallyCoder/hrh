@@ -1,0 +1,22 @@
+__pycache__/
+*.egg-info/
+.venv/
+data/
+results/
+eeg/
+things/
+features/
+*.zip
+# LaTeX build products (main.pdf is kept on purpose)
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/build.log
+paper/arxiv.tar.gz
+paper/teaser_standalone.pdf
+results_colab/
+
+# paper draft (v2 in preparation; kept out of the repository until written)
+paper/
