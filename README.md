@@ -4,7 +4,7 @@
 
 **What a network is trained to predict, not its size, sets which moment of perception it matches.**
 
-[Methodology](METHODS.md) · [Run it](RUNNING.md)
+[Paper (PDF)](paper/main.pdf) · [Methodology](METHODS.md) · [Run it](RUNNING.md) · [Cite](#citation)
 
 ![tests](https://github.com/LegallyCoder/hrh/actions/workflows/ci.yml/badge.svg)
 ![python](https://img.shields.io/badge/python-3.10%2B-2a78d6)
@@ -31,20 +31,22 @@ network can match. Our answer has three parts.
    enter, and depth only refines the steps. Alignment with a brain stage peaks when the spectra
    match.
 3. **A brain-free law, tested out of sample.** From properties measured without any neural data
-   (spectral exponents, low-level and semantic retention), we fit a law on 33 development models
+   (spectral exponents, low-level and semantic retention), we fit a law on 30 development models
    and **pre-register its predictions for 18 held-out models** before their brain alignment is
    computed.
 
 <p align="center"><img src="docs/teaser.png" width="92%" alt="Platonic vs Heraclitean convergence"></p>
 
-## Status
+## Results at a glance
 
 | | |
 |---|---|
-| Theory | done: spectral matching and spectral trajectories (`hrh/theory.py`, `tests/test_theory.py`) |
-| Development study | done: 33 models × 10 subjects |
-| Brain-free proxies and law | implemented (`hrh/proxies.py`, `hrh/law.py`) |
-| Held-out test | predictions to be registered in [`registration/`](registration/) before analysis |
+| Scale | within six ladders (6M–1.8B params), alignment is flat in size in every window; model family explains 71–81% of the variance between models, size within family 0.1–2.2% |
+| Theory | in deep linear networks, the objective fixes the path of layer spectra from the input's to an objective-specific endpoint; width does not enter |
+| Held-out law (registered) | **supported**: the brain-free law ranks 18 unseen models at Spearman ρ = 0.65 / 0.70 / 0.63 (early / semantic / late); model size at chance |
+| Convergence between models | agreement is highest in early layers and falls with depth; same-objective networks re-converge at the readout |
+
+Pre-specified predictions that failed are reported in the paper.
 
 ## Quickstart
 
@@ -59,11 +61,25 @@ The full pipeline (GPU) is in [RUNNING.md](RUNNING.md) and `notebooks/hrh_colab.
 ## Layout
 
 ```
-hrh/            align, brain, features, trajectory, theory, proxies, law, evaluate, plotting, data
-run_hrh.py      brain | features | eval | proxies | law | predict | analyze | figures
+hrh/            align, brain, features, trajectory, theory, proxies, law, convergence,
+                evaluate, plotting, paperfigs, paper_v2, data
+run_hrh.py      brain | features | eval | proxies | law | predict | convergence | paper
 registration/   registered held-out predictions (JSON + SHA-256)
+paper/          LaTeX source; figures/ and generated/ are written by `run_hrh.py paper`
 tests/          synthetic ground truth and theory checks (run in CI)
 notebooks/      end-to-end GPU notebook
+```
+
+## Citation
+
+```bibtex
+@article{akkus2026hrh,
+  title   = {The Heraclitean Representation Hypothesis: What a Network Learns to Predict,
+             not its Size, Sets which Moment of Perception it Matches},
+  author  = {Akku\c{s}, Talha R\"uzgar},
+  year    = {2026},
+  url     = {https://github.com/LegallyCoder/hrh}
+}
 ```
 
 ## License

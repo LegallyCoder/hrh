@@ -1,0 +1,50 @@
+% Figure 1 — Platonic vs. Heraclitean picture of representational convergence.
+\begin{tikzpicture}[
+    x=1cm, y=1cm, font=\footnotesize,
+    lab/.style={text=hrhink2, font=\scriptsize, align=center},
+    model/.style={line width=1.3pt, -{Stealth[length=5pt,width=4pt]}},
+  ]
+  % ------------------------------------------------------------ left: PRH
+  \begin{scope}
+    \fill[hrhsurface, rounded corners=14pt] (0,0) rectangle (6.4,4.2);
+    \node[anchor=north west, font=\small\bfseries] at (0.2,4.05) {Platonic};
+    \node[anchor=north west, lab, align=left] at (0.2,3.62) {representations converge\\to one static kernel};
+    \coordinate (K) at (3.7,1.75);
+    \foreach \r/\o in {1.25/18, 0.85/30, 0.48/45}{
+      \fill[hrhblue, opacity=0.06] (K) circle (\r);
+    }
+    \draw[model, hrhblue]   (0.7,0.55) .. controls (1.8,0.5) and (2.6,1.2) .. ($(K)+(-0.18,-0.08)$);
+    \draw[model, hrhorange] (6.0,0.45) .. controls (5.1,0.6) and (4.4,1.0) .. ($(K)+(0.16,-0.12)$);
+    \draw[model, hrhgreen]  (5.95,3.6) .. controls (5.2,3.3) and (4.3,2.6) .. ($(K)+(0.12,0.16)$);
+    \draw[model, hrhviolet] (1.2,2.75) .. controls (2.2,2.9) and (3.0,2.3) .. ($(K)+(-0.14,0.14)$);
+    \node[star, star points=5, star point ratio=2.3, fill=hrhink, inner sep=1.3pt] at (K) {};
+    \node[lab, anchor=north] at ($(K)+(0,-0.22)$) {$K^{\star}$};
+    \node[lab, anchor=west] at (0.55,0.32) {vision};
+    \node[lab, anchor=east] at (6.15,0.25) {language};
+    \node[lab, anchor=east] at (6.15,3.82) {brain};
+    \node[lab, anchor=east] at (1.25,2.75) {audio};
+  \end{scope}
+  % ------------------------------------------------------------ right: HRH
+  \begin{scope}[xshift=6.9cm]
+    \fill[hrhsurface, rounded corners=14pt] (0,0) rectangle (7.6,4.2);
+    \node[anchor=north west, font=\small\bfseries] at (0.2,4.05) {Heraclitean};
+    \node[anchor=north west, lab, align=left] at (0.2,3.62) {perception is a trajectory;\\a single readout reaches one moment of it};
+    % the river: brain trajectory over time (regime points lie on the curve)
+    \coordinate (S0) at (0.55,0.5); \coordinate (E) at (1.45,1.12);
+    \coordinate (M) at (3.75,2.0);  \coordinate (L) at (5.95,1.42); \coordinate (S1) at (7.1,1.78);
+    \draw[line width=9pt, hrhblue!14, line cap=round] plot[smooth, tension=0.7] coordinates {(S0) (E) (M) (L) (S1)};
+    \draw[line width=1.0pt, hrhink, line cap=round, -{Stealth[length=5pt]}]
+        plot[smooth, tension=0.7] coordinates {(S0) (E) (M) (L) (S1)};
+    \fill[hrhink] (E) circle (1.6pt) (M) circle (1.6pt) (L) circle (1.6pt);
+    \node[lab, anchor=south east] at ($(E)+(-0.08,0.1)$) {retinotopic\\[-1pt]\textcolor{hrhmuted}{$\sim$80\,ms}};
+    \node[lab, anchor=north west] at ($(M)+(0.2,-0.12)$) {semantic\\[-1pt]\textcolor{hrhmuted}{$\sim$180\,ms}};
+    \node[lab, anchor=north] at ($(L)+(0,-0.2)$) {recurrent\\[-1pt]\textcolor{hrhmuted}{$\sim$330\,ms}};
+    % single-readout net (any size): jumps straight to the semantic point
+    \draw[model, hrhblue] (3.05,0.38) .. controls (3.35,0.9) and (3.6,1.4) .. ($(M)+(-0.02,-0.14)$);
+    \node[lab, anchor=north] at (3.05,0.36) {single-readout net, any size};
+    % iterative / multi-readout model: tracks the whole river
+    \draw[model, hrhgreen, line width=1.0pt] (1.75,1.85) .. controls (2.6,2.55) and (3.2,2.75) .. (3.9,2.7)
+        .. controls (4.8,2.62) and (5.6,2.0) .. (6.95,2.25);
+    \node[lab, anchor=south east] at (7.4,2.33) {dense objective /\\iterative};
+  \end{scope}
+\end{tikzpicture}

@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+title: "The Heraclitean Representation Hypothesis"
+authors:
+  - family-names: "Akkuş"
+    given-names: "Talha Rüzgar"
+license: MIT
+repository-code: "https://github.com/LegallyCoder/hrh"

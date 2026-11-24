@@ -609,7 +609,7 @@ def fig_convergence(res: dict, family: dict, rows: list[dict], out_path: str):
     plt, cmap = setup()
     models = res["models"]
     fig = plt.figure(figsize=(TEXT_W, 2.05))
-    gs = fig.add_gridspec(1, 4, width_ratios=[0.95, 0.85, 0.85, 1.0], wspace=0.45)
+    gs = fig.add_gridspec(1, 4, width_ratios=[0.95, 0.75, 0.75, 1.0], wspace=0.5)
 
     ax = fig.add_subplot(gs[0])
     ds = [float(d) for d in res["depths"]]
@@ -620,37 +620,26 @@ def fig_convergence(res: dict, family: dict, rows: list[dict], out_path: str):
     ax.plot(ds, m, color=INK, lw=1.8, marker="o", ms=4)
     ax.axhline(0, color=INK, lw=0.6)
     ax.set(xticks=ds, xticklabels=["¼", "½", "¾", "out"], xlabel="relative depth",
-           ylabel="convergence change per 10×")
+           ylabel="change per 10× parameters")
     ygrid(ax)
-    title(ax, "a", "Where models converge")
+    title(ax, "a", "Size and agreement")
 
-    order = sorted(range(len(models)), key=lambda i: (
-        CLASS_ORDER.index(FAMILY_CLASS.get(family.get(models[i]), "supervised")),
-        family.get(models[i], ""), models[i]))
-    vmax = max(np.max(np.array(res["matrices"][k])[np.triu_indices(len(models), 1)])
-               for k in res["matrices"])
-    for k, (key, lab, let) in enumerate((("0.5", "mid depth", "b"), ("1.0", "readout", "c"))):
-        ax = fig.add_subplot(gs[1 + k])
-        mat = np.array(res["matrices"][key])[np.ix_(order, order)].copy()
-        np.fill_diagonal(mat, np.nan)
-        ax.imshow(mat, cmap=cmap, vmin=0, vmax=vmax, interpolation="nearest")
-        bounds = [0]
-        for i in range(1, len(order)):
-            a = FAMILY_CLASS.get(family.get(models[order[i - 1]]))
-            b = FAMILY_CLASS.get(family.get(models[order[i]]))
-            if a != b:
-                bounds.append(i)
-                ax.axhline(i - 0.5, color="white", lw=0.8)
-                ax.axvline(i - 0.5, color="white", lw=0.8)
-        bounds.append(len(order))
-        for s0, s1 in zip(bounds[:-1], bounds[1:]):
-            cls = FAMILY_CLASS.get(family.get(models[order[s0]]))
-            ax.plot([-2.2, -2.2], [s0 - 0.3, s1 - 0.7], color=CLASS_COLOR[cls], lw=2.4,
-                    solid_capstyle="butt", clip_on=False)
-        ax.set(xticks=[], yticks=[], xlim=(-3, len(order) - 0.5))
-        for sp in ax.spines.values():
-            sp.set_visible(False)
-        title(ax, let, lab)
+    ax = fig.add_subplot(gs[1:3])
+    cls_of = np.array([FAMILY_CLASS.get(family.get(x), "supervised") for x in models])
+    same = cls_of[:, None] == cls_of[None, :]
+    iu = np.triu_indices(len(models), 1)
+    for mask, lab, col in ((same, "same objective class", CLASS_COLOR["latent"]),
+                           (~same, "different objective class", MUTED)):
+        vals = []
+        for d in ds:
+            mat = np.array(res["matrices"][str(d)])
+            vals.append(mat[iu][mask[iu]].mean())
+        ax.plot(ds, vals, color=col, lw=1.9, marker="o", ms=4)
+        _halo(ax.text(ds[-1] + 0.03, vals[-1], lab, color=col, fontsize=6.3, va="center"))
+    ax.set(xticks=ds, xticklabels=["¼", "½", "¾", "out"], xlim=(0.2, 1.38),
+           xlabel="relative depth", ylabel="agreement (mutual k-NN)")
+    ygrid(ax)
+    title(ax, "b", "Models agree early and diverge with depth")
 
     ax = fig.add_subplot(gs[3])
     by = {r["model"]: r for r in rows}
@@ -666,11 +655,11 @@ def fig_convergence(res: dict, family: dict, rows: list[dict], out_path: str):
         xs.append(cent[mdl])
         ys.append(y)
     from .law import _spearman
-    ax.text(0.97, 0.05, rf"$\rho$ = {_spearman(xs, ys):.2f}", transform=ax.transAxes,
-            ha="right", fontsize=7, color=INK, fontweight="bold")
-    ax.set(xlabel="convergence with other models", ylabel="brain alignment")
+    ax.text(0.04, 0.95, rf"$\rho$ = {_spearman(xs, ys):.2f}", transform=ax.transAxes,
+            ha="left", va="top", fontsize=7, color=INK, fontweight="bold")
+    ax.set(xlabel="agreement with other models", ylabel="brain alignment")
     ygrid(ax)
-    title(ax, "d", "Convergence vs. brain")
+    title(ax, "c", "Agreement vs. brain")
     present = [c for c in CLASS_ORDER if any(FAMILY_CLASS.get(family.get(x)) == c for x in models)]
     _class_legend(fig, present, y=-0.2)
     fig.savefig(out_path)
@@ -705,18 +694,18 @@ def fig_time(npz_path: str, family: dict, out_path: str, examples: dict | None =
     curves: dict[str, list] = {}
     for m, k in keymap.items():
         curves.setdefault(FAMILY_CLASS.get(family[m], "supervised"), []).append(mats[k].max(0))
-    ends = []
+    shown = []
     for cls in CLASS_ORDER:
         if cls not in curves:
             continue
-        c = np.stack(curves[cls])
-        med = np.median(c, 0)
-        ax.plot(times, med, color=CLASS_EDGE[cls], lw=1.6)
-        k = int(np.argmax(med))
-        ends.append((med.max(), cls, times[k]))
-    for v, cls, t in ends:
-        _halo(ax.text(t + 12, v, CLASS_SHORT[cls], fontsize=6, color=CLASS_EDGE[cls],
-                      va="bottom"))
+        med = np.median(np.stack(curves[cls]), 0)
+        ax.plot(times, med, color=CLASS_EDGE[cls], lw=1.5)
+        shown.append(cls)
+    for i, cls in enumerate(shown):                      # stacked key, upper right
+        y = 0.95 - 0.085 * i
+        ax.plot([0.66, 0.72], [y, y], transform=ax.transAxes, color=CLASS_EDGE[cls], lw=1.8)
+        ax.text(0.74, y, CLASS_SHORT[cls], transform=ax.transAxes, fontsize=6.1,
+                color=CLASS_EDGE[cls], va="center")
     ax.set(xlim=(-100, 700), xlabel="time from stimulus onset (ms)",
            ylabel="best-layer alignment (RSA)")
     ygrid(ax)

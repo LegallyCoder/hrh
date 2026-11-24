@@ -68,6 +68,23 @@ def variance_shares(rows: list[dict]) -> dict:
     return out
 
 
+def _convergence_numbers(conv: dict) -> dict:
+    models = conv["models"]
+    cls = np.array([pf.FAMILY_CLASS.get(FAMILY.get(m), "supervised") for m in models])
+    same = cls[:, None] == cls[None, :]
+    iu = np.triu_indices(len(models), 1)
+    out = {"agree_all": {}, "agree_same": {}, "agree_diff": {}}
+    for d in conv["depths"]:
+        mat = np.array(conv["matrices"][str(d)])[iu]
+        out["agree_all"][d] = float(mat.mean())
+        out["agree_same"][d] = float(mat[same[iu]].mean())
+        out["agree_diff"][d] = float(mat[~same[iu]].mean())
+    out["slope"] = conv["slope_primary"]
+    out["brain"] = conv.get("brain_link", {})
+    out["predictions"] = conv["predictions"]
+    return out
+
+
 def build(results_dir: str, paper_dir: str, reg_path: str) -> dict:
     gen, figs = os.path.join(paper_dir, "generated"), os.path.join(paper_dir, "figures")
     os.makedirs(gen, exist_ok=True)
@@ -129,6 +146,18 @@ def build(results_dir: str, paper_dir: str, reg_path: str) -> dict:
                {w: law["windows"][w]["cv"] for w in WIN},
                os.path.join(figs, "law_full.pdf"), extremes)
     pf.fig_ablation(explo, os.path.join(figs, "ablation.pdf"))
+    conv_path = os.path.join(results_dir, "convergence_grid4.json")
+    if os.path.exists(conv_path):
+        with open(conv_path) as fh:
+            conv = json.load(fh)
+        pf.fig_convergence(conv, FAMILY, rows, os.path.join(figs, "convergence.pdf"))
+        explo["convergence"] = _convergence_numbers(conv)
+    amat = os.path.join(results_dir, "A_matrices_grid4.npz")
+    if os.path.exists(amat):
+        pf.fig_time(amat, FAMILY, os.path.join(figs, "time.pdf"),
+                    {"eva02_large_patch14_224.mim_in22k": "EVA-02-L",
+                     "vit_large_patch14_clip_224.laion2b": "CLIP-L/14",
+                     "convnextv2_large.fcmae": "ConvNeXt V2-L"})
 
     # macros
     lt = summ.get("law_test", {})
@@ -161,6 +190,23 @@ def build(results_dir: str, paper_dir: str, reg_path: str) -> dict:
               rf"\renewcommand{{\vVarFam{W}}}{{{100 * explo['variance'][w]['family']:.0f}}}",
               rf"\renewcommand{{\vVarSize{W}}}{{{100 * explo['variance'][w]['size_within']:.1f}}}",
               rf"\renewcommand{{\vSlope{W}}}{{{ci3(summ['slope_vs_log10_params'][w])}}}"]
+    cv_ = explo.get("convergence")
+    if cv_:
+        def s4(d):
+            x = cv_["slope"][str(d)]
+            return f"${x['mean']:+.3f}$ [${x['ci95'][0]:+.3f}$, ${x['ci95'][1]:+.3f}$]"
+        m += [r"\hrhconvtrue",
+              rf"\renewcommand{{\vConvSlopeOut}}{{{s4(1.0)}}}",
+              rf"\renewcommand{{\vConvSlopeMid}}{{{s4(0.5)}}}",
+              rf"\renewcommand{{\vAgreeQ}}{{{cv_['agree_all'][0.25]:.2f}}}",
+              rf"\renewcommand{{\vAgreeOut}}{{{cv_['agree_all'][1.0]:.2f}}}",
+              rf"\renewcommand{{\vAgreeSameTQ}}{{{cv_['agree_same'][0.75]:.2f}}}",
+              rf"\renewcommand{{\vAgreeSameOut}}{{{cv_['agree_same'][1.0]:.2f}}}",
+              rf"\renewcommand{{\vAgreeDiffQ}}{{{cv_['agree_diff'][0.25]:.2f}}}",
+              rf"\renewcommand{{\vAgreeDiffOut}}{{{cv_['agree_diff'][1.0]:.2f}}}",
+              rf"\renewcommand{{\vConvBrainEarly}}{{{cv_['brain']['early']:.2f}}}",
+              rf"\renewcommand{{\vConvBrainMid}}{{{cv_['brain']['mid']:.2f}}}",
+              rf"\renewcommand{{\vConvBrainLate}}{{{cv_['brain']['late']:.2f}}}"]
     fams = [100 * explo["variance"][w]["family"] for w in WIN]
     m += [rf"\renewcommand{{\vVarFamMin}}{{{min(fams):.0f}}}",
           rf"\renewcommand{{\vVarFamMax}}{{{max(fams):.0f}}}"]
