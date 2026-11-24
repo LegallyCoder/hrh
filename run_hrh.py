@@ -9,6 +9,7 @@
   python run_hrh.py proxies                                # brain-free proxies for every model
   python run_hrh.py law                                    # fit + freeze the law (development models)
   python run_hrh.py predict                                # held-out predictions + hash to register
+  python run_hrh.py convergence                            # model-to-model convergence by depth
   python run_hrh.py paper                                  # figures, tables, macros for the paper
   python run_hrh.py analyze  --pool gap                    # one pooling only (exploration)
 """
@@ -162,6 +163,19 @@ def stage_predict(a):
     print(f"[predict] sha256 {digest}")
 
 
+def stage_convergence(a):
+    """Model-to-model convergence by depth (PRH's metric); CPU, ~15 min."""
+    from hrh import convergence as cv
+    res = cv.run(a.out, a.pool)
+    for d in cv.DEPTHS:
+        s = res["slope_primary"][str(d)]
+        print(f"[convergence] depth {d:.2f}: slope {s['mean']:+.4f} "
+              f"[{s['ci95'][0]:+.4f}, {s['ci95'][1]:+.4f}]")
+    print("[convergence] predictions:", res["predictions"])
+    print("[convergence] brain link (readout convergence vs window score):",
+          res.get("brain_link"))
+
+
 def stage_paper(a):
     """Figures, tables and macros for the paper from the pipeline outputs (CPU, seconds)."""
     from hrh import paper_v2
@@ -178,10 +192,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="stage", required=True)
     p = {n: sub.add_parser(n) for n in ("brain", "features", "analyze", "eval", "figures",
-                                         "proxies", "law", "predict", "paper")}
-    for n in ("brain", "features", "analyze", "eval", "proxies", "law", "predict"):
+                                         "proxies", "law", "predict", "paper", "convergence")}
+    for n in ("brain", "features", "analyze", "eval", "proxies", "law", "predict", "convergence"):
         p[n].add_argument("--out", default="results")
-    for n in ("proxies", "law", "predict"):
+    for n in ("proxies", "law", "predict", "convergence"):
         p[n].add_argument("--pool", default="grid4", choices=("grid4", "gap", "cls"))
     p["proxies"].add_argument("--img-dir", default="data/things/test_images")
     p["proxies"].add_argument("--categories", default="data/things/category53_wide-format.tsv")

@@ -19,6 +19,8 @@ CLASS_COLOR = {"latent": "#2a78d6", "pixel": "#eda100", "language": "#e87ba4",
 CLASS_EDGE = {k: v for k, v in CLASS_COLOR.items()} | {"pixel": "#b57b00"}  # contrast relief
 CLASS_MARKER = {"latent": "o", "pixel": "s", "language": "D", "selfdistill": "^",
                 "supervised": "v"}
+CLASS_SHORT = {"latent": "latent", "pixel": "pixel", "language": "language",
+               "selfdistill": "self-distill.", "supervised": "supervised"}
 CLASS_LABEL = {"latent": "latent prediction", "pixel": "pixel / generative",
                "language": "language-supervised", "selfdistill": "self-distillation",
                "supervised": "supervised"}
@@ -366,5 +368,62 @@ def fig_ablation(explo: dict, out_path: str):
          Line2D([], [], lw=0, marker="o", ms=4.5, mfc=INK2, mec=INK2)]
     fig.legend(h, ["development, cross-validated", "held-out"], loc="lower center", ncol=2,
                bbox_to_anchor=(0.55, -0.24), frameon=False, labelcolor=INK2)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Figure: what real networks do through depth (brain-free)
+# ---------------------------------------------------------------------------
+
+def _class_profiles(proxies: dict, family: dict, key: str, n: int = 25):
+    grid = np.linspace(0, 1, n)
+    out = {}
+    for m, p in proxies.items():
+        cls = FAMILY_CLASS.get(family.get(m))
+        v = np.asarray(p[key], float)
+        if cls is None or len(v) < 2:
+            continue
+        v = np.interp(grid, np.linspace(0, 1, len(v)), np.where(np.isfinite(v), v, np.nanmean(v)))
+        out.setdefault(cls, []).append(v)
+    return grid, {c: np.stack(v) for c, v in out.items()}
+
+
+def fig_depth(proxies: dict, family: dict, out_path: str):
+    """Median (line) and interquartile band (shade) per objective class, through
+    normalized depth: spectral exponent, low-level and semantic retention.
+    Direct labels, no legend."""
+    plt, _ = setup()
+    fig, axes = plt.subplots(1, 3, figsize=(TEXT_W, 2.0), gridspec_kw={"wspace": 0.62})
+    specs = (("alpha", "spectral exponent", "a", "Spectrum"),
+             ("L", "low-level retention (RSA)", "b", "Low-level content"),
+             ("S", "semantic retention (RSA)", "c", "Semantic content"))
+    for ax, (key, ylab, let, name) in zip(axes, specs):
+        grid, prof = _class_profiles(proxies, family, key)
+        ends = []
+        for cls in CLASS_ORDER:
+            if cls not in prof:
+                continue
+            v = prof[cls]
+            med = np.median(v, 0)
+            q1, q3 = np.percentile(v, 25, 0), np.percentile(v, 75, 0)
+            col = CLASS_EDGE[cls]
+            ax.fill_between(grid, q1, q3, color=tint(CLASS_COLOR[cls], 0.13), lw=0, zorder=1)
+            ax.plot(grid, med, color=col, lw=1.9, zorder=2)
+            ends.append([med[-1], cls])
+        ends.sort()
+        lo, hi = ax.get_ylim()
+        gap = 0.075 * (hi - lo)
+        for i in range(1, len(ends)):                       # de-collide end labels
+            ends[i][0] = max(ends[i][0], ends[i - 1][0] + gap)
+        for y, cls in ends:
+            ax.text(1.04, y, CLASS_SHORT[cls], color=CLASS_EDGE[cls], fontsize=6.2,
+                    va="center")
+        ax.set(xlim=(0, 1), xticks=[0, 0.5, 1], xticklabels=["input", "middle", "output"],
+               ylabel=ylab)
+        ygrid(ax)
+        title(ax, let, name)
+    axes[1].set_xlabel("relative depth")
+    fig.subplots_adjust(right=0.93)
     fig.savefig(out_path)
     plt.close(fig)
