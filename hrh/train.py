@@ -82,6 +82,45 @@ def load_data(xp: str, yp: str):
     return x, y
 
 
+class BufferedBatches:
+    """Fast shuffled batches from a large on-disk memmap.
+
+    Random access to single images is disk-bound, so a background thread reads
+    `n_chunks` contiguous chunks from random offsets (sequential reads), shuffles their
+    union in memory and yields batches; the next buffer is loaded while the current
+    one is consumed. Each buffer mixes images from many parts of the dataset."""
+
+    def __init__(self, x, y, batch: int, seed: int, chunk: int = 8192, n_chunks: int = 8):
+        import queue
+        import threading
+        self.x, self.y, self.batch = x, y, batch
+        self.chunk, self.n_chunks = min(chunk, len(y)), n_chunks
+        self.rng = np.random.default_rng(seed)
+        self.q: queue.Queue = queue.Queue(maxsize=1)
+        self.stop = False
+        self.t = threading.Thread(target=self._work, daemon=True)
+        self.t.start()
+
+    def _load(self):
+        n = len(self.y)
+        starts = self.rng.integers(0, max(1, n - self.chunk), self.n_chunks)
+        xs = [np.asarray(self.x[s:s + self.chunk]) for s in starts]       # sequential reads
+        ys = [np.asarray(self.y[s:s + self.chunk]) for s in starts]
+        xb, yb = np.concatenate(xs), np.concatenate(ys).astype(np.int64)
+        perm = self.rng.permutation(len(yb))
+        return xb[perm], yb[perm]
+
+    def _work(self):
+        while not self.stop:
+            self.q.put(self._load())
+
+    def __iter__(self):
+        while True:
+            xb, yb = self.q.get()
+            for i in range(0, len(yb) - self.batch + 1, self.batch):
+                yield xb[i:i + self.batch], yb[i:i + self.batch]
+
+
 def gpu_augment(xb, gen=None):
     """uint8 (B, 64, 64, 3) on GPU -> normalized float (B, 3, 64, 64) with random resized
     crop (scale 0.25-1, ratio 3/4-4/3) and horizontal flip, via one affine grid."""
@@ -315,18 +354,14 @@ def train(objective: str, seed: int, data_dir: str, out_dir: str, epochs: int = 
     if step >= total:
         return ck
 
-    rng = np.random.default_rng(seed + 10_000 * step)
-    order = rng.permutation(n_img)
-    pos = (step % steps_per_epoch) * batch
+    batches = iter(BufferedBatches(x, y, batch, seed + 10_000 * step))
     t0, seen = time.time(), 0
     model.train()
     while step < total:
-        if pos + batch > n_img:
-            order, pos = rng.permutation(n_img), 0
-        idx = np.sort(order[pos:pos + batch])
-        pos += batch
-        xb = torch.from_numpy(np.ascontiguousarray(x[idx])).to(dev, non_blocking=True)
-        yb = torch.from_numpy(y[idx].astype(np.int64)).to(dev)
+        xn, yn = next(batches)
+        xb = torch.from_numpy(xn).pin_memory().to(dev, non_blocking=True) if dev == "cuda" \
+            else torch.from_numpy(xn)
+        yb = torch.from_numpy(yn).to(dev, non_blocking=True)
         frac = step / total
         cur = lr * min(1.0, (step + 1) / warm) * 0.5 * (1 + math.cos(math.pi * frac))
         for g in opt.param_groups:
@@ -347,9 +382,9 @@ def train(objective: str, seed: int, data_dir: str, out_dir: str, epochs: int = 
                         pt.mul_(mom).add_(ps.detach(), alpha=1 - mom)
         step += 1
         seen += batch
-        if not math.isfinite(loss.item()):
-            raise FloatingPointError(f"{name}: non-finite loss at step {step}")
-        if step % 100 == 0:
+        if step % 100 == 0:                                          # sync only every 100 steps
+            if not math.isfinite(loss.item()):
+                raise FloatingPointError(f"{name}: non-finite loss at step {step}")
             rate = seen / (time.time() - t0)
             eta = (total - step) * batch / max(rate, 1) / 60
             print(f"[train] {name} step {step}/{total} loss {loss.item():.4f} "
