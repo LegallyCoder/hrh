@@ -75,7 +75,8 @@ def stage_analyze(a):
 
 def stage_eval(a):
     from hrh import evaluate as ev
-    ev.evaluate(a.out, a.paper, n_boot=a.n_boot, n_depth=a.n_depth)
+    ev.evaluate(a.out, a.paper, n_boot=a.n_boot, n_depth=a.n_depth,
+                pools=tuple(a.pools.split(",")))
 
 
 def stage_proxies(a):
@@ -185,6 +186,8 @@ def main():
     p["brain"].add_argument("--subjects", default=ALL_SUBJECTS)
     p["brain"].add_argument("--eeg-dir", default="data/eeg")
     p["brain"].add_argument("--smooth", type=int, default=1, help="boxcar width (samples)")
+    p["eval"].add_argument("--pools", default="grid4,gap,cls",
+                           help="grid4 alone runs the registered tests (fastest)")
     p["features"].add_argument("--families", default="all")
     p["features"].add_argument("--img-dir", default="data/things/test_images")
     p["features"].add_argument("--device", default="cuda")

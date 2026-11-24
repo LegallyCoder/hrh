@@ -453,10 +453,11 @@ def write_synthetic_assets(paper_dir: str) -> None:
     open(os.path.join(gen, "synthetic.tex"), "w").write("\n".join(lines) + "\n")
 
 
-def evaluate(results_dir: str, paper_dir: str, n_boot: int = 1000, n_depth: int = 8) -> dict:
+def evaluate(results_dir: str, paper_dir: str, n_boot: int = 1000, n_depth: int = 8,
+             pools: tuple = POOLS) -> dict:
     subjects = load_subjects(results_dir)
     out = {}
-    for pool in POOLS:
+    for pool in pools:
         try:
             out[pool] = analyze(results_dir, pool, n_depth=n_depth,
                                 n_boot=n_boot if pool == POOLS[0] else max(n_boot // 4, 100),
