@@ -85,7 +85,28 @@ scores, with a bootstrap over subjects, stimuli **and models**.
 
 The scale null is replicated on the held-out ladders (`slope_heldout`).
 
-## 7. Controls
+## 7. Controlled objective experiment (pre-specified before any training)
+
+The off-the-shelf comparison cannot separate the objective from data, architecture and recipe.
+Here only the objective varies (`hrh/train.py`). One architecture (ViT-Tiny, dim 192, depth 12,
+8×8 patches on 64×64 images, no class token), one dataset (ImageNet-1k at 64×64), identical
+augmentation, optimizer, schedule and number of images seen (10 epochs). Four objectives:
+supervised classification, MAE (masked pixels), JEPA (EMA-target embeddings of masked blocks),
+data2vec (EMA teacher's averaged top-layer features at masked positions). Two seeds each.
+THINGS images are presented at 64 px.
+
+Predictions (`evaluate.controlled_verdict`; window scores averaged over seeds; bootstrap over
+subjects and stimuli):
+
+* **H1 (primary)**: latent prediction (JEPA and data2vec together) exceeds **both** supervised and
+  MAE networks in the early window: lower 95% bounds of both contrasts > 0.
+* **H2**: the same in the late window.
+* **H3 (theory)**: in each seed, the MAE network's final-layer spectral exponent is higher than
+  those of both latent-prediction networks.
+
+Sanity check, reported for every run: k-NN top-1 accuracy on ImageNet-64 validation.
+
+## 8. Controls
 
 | Concern | Control |
 |---|---|

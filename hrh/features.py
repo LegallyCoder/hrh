@@ -103,7 +103,15 @@ HELDOUT_LADDERS: dict[str, list[tuple[str, float]]] = {
                     ("hf:microsoft/beit-large-patch16-224-pt22k", 303.3)],
 }
 
-ALL_LADDERS = {**LADDERS, **OBJECTIVE_LADDERS, **HELDOUT_LADDERS}
+# Controlled objective experiment (hrh/train.py): identical ViT-Tiny/8 at 64 px, identical
+# data and budget; only the objective differs. 'local:' = checkpoint in --ckpt-dir.
+CONTROLLED_LADDERS: dict[str, list[tuple[str, float]]] = {
+    f"ctl-{o}": [(f"local:{o}_s{s}", 5.4) for s in (0, 1)]
+    for o in ("sup", "mae", "jepa", "data2vec")}
+CONTROLLED = {m for fam in CONTROLLED_LADDERS.values() for m, _ in fam}
+CKPT_DIR = os.environ.get("HRH_CKPT_DIR", "checkpoints")
+
+ALL_LADDERS = {**LADDERS, **OBJECTIVE_LADDERS, **HELDOUT_LADDERS, **CONTROLLED_LADDERS}
 PARAMS = {m: p for fam in ALL_LADDERS.values() for m, p in fam}
 FAMILY = {m: f for f, fam in ALL_LADDERS.items() for m, _ in fam}
 PRIMARY = {m for fam in LADDERS.values() for m, _ in fam}
@@ -140,6 +148,14 @@ def _hf_norm(repo: str):
 
 def _load(name: str, device: str):
     import torch
+    if name.startswith("local:"):                   # controlled experiment, 64 px input
+        from torchvision import transforms as T
+
+        from .train import IMG, MEAN, STD, load_encoder
+        net = load_encoder(os.path.join(CKPT_DIR, name[6:] + ".pt"), device)
+        tf = T.Compose([T.Resize(IMG, interpolation=T.InterpolationMode.BICUBIC),
+                        T.CenterCrop(IMG), T.ToTensor(), T.Normalize(MEAN, STD)])
+        return net, tf, [(f"blocks.{i}", b) for i, b in enumerate(net.blocks)], 0
     if name.startswith("hf:"):                      # transformers: hidden states, no hooks
         from transformers import AutoConfig, AutoModel
         repo = name[3:]

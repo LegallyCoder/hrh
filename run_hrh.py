@@ -176,6 +176,23 @@ def stage_convergence(a):
           res.get("brain_link"))
 
 
+def stage_train(a):
+    """Controlled objective experiment: train one (objective, seed) run, resumable."""
+    from hrh import train as tr
+    objs = tr.OBJECTIVES if a.objective == "all" else a.objective.split(",")
+    seeds = [int(x) for x in a.seeds.split(",")]
+    for s in seeds:
+        for o in objs:
+            ck = tr.train(o, s, a.data_dir, a.ckpt_dir, epochs=a.epochs, batch=a.batch,
+                          max_steps=a.max_steps)
+            print(f"[train] done {o} seed {s} -> {ck}", flush=True)
+            if a.knn:
+                import torch
+                dev = "cuda" if torch.cuda.is_available() else "cpu"
+                acc = tr.knn_accuracy(tr.load_encoder(ck, dev), a.data_dir, dev)
+                print(f"[train] {o}_s{s} kNN top-1 (ImageNet-64 val): {acc:.3f}", flush=True)
+
+
 def stage_paper(a):
     """Figures, tables and macros for the paper from the pipeline outputs (CPU, seconds)."""
     from hrh import paper_v2
@@ -192,7 +209,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="stage", required=True)
     p = {n: sub.add_parser(n) for n in ("brain", "features", "analyze", "eval", "figures",
-                                         "proxies", "law", "predict", "paper", "convergence")}
+                                         "proxies", "law", "predict", "paper", "convergence",
+                                         "train")}
     for n in ("brain", "features", "analyze", "eval", "proxies", "law", "predict", "convergence"):
         p[n].add_argument("--out", default="results")
     for n in ("proxies", "law", "predict", "convergence"):
@@ -210,6 +228,14 @@ def main():
     p["brain"].add_argument("--subjects", default=ALL_SUBJECTS)
     p["brain"].add_argument("--eeg-dir", default="data/eeg")
     p["brain"].add_argument("--smooth", type=int, default=1, help="boxcar width (samples)")
+    p["train"].add_argument("--objective", default="all", help="sup,mae,jepa,data2vec or all")
+    p["train"].add_argument("--seeds", default="0,1")
+    p["train"].add_argument("--epochs", type=int, default=10)
+    p["train"].add_argument("--batch", type=int, default=512)
+    p["train"].add_argument("--max-steps", type=int, default=None, help="smoke test")
+    p["train"].add_argument("--data-dir", default="/content/imagenet64")
+    p["train"].add_argument("--ckpt-dir", default="checkpoints")
+    p["train"].add_argument("--knn", action="store_true", help="report k-NN accuracy")
     p["eval"].add_argument("--pools", default="grid4,gap,cls",
                            help="grid4 alone runs the registered tests (fastest)")
     p["features"].add_argument("--families", default="all")

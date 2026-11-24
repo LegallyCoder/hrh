@@ -18,8 +18,8 @@ import numpy as np
 
 from . import brain, plotting, trajectory as tr
 from . import law as lw
-from .features import (FAMILY, HELDOUT, OBJECTIVE_LADDERS, PARAMS, PRIMARY, REFERENCE_BY_SIZE,
-                       SIZE_CLASS, model_rdms)
+from .features import (CONTROLLED, FAMILY, HELDOUT, OBJECTIVE_LADDERS, PARAMS, PRIMARY,
+                       REFERENCE_BY_SIZE, SIZE_CLASS, model_rdms)
 
 REG_DIR = os.environ.get("HRH_REG_DIR", os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "registration"))
@@ -181,6 +181,17 @@ def analyze(results_dir: str, pool: str = "grid4", n_depth: int = 8, n_boot: int
             stats[k] = f
         stats["slope_heldout"] = lambda sc: tr.family_slope(
             only(sc, set(held)), par_all, fam_all)
+    ctl = {o: sorted(m for m in models if m in CONTROLLED and FAMILY[m] == f"ctl-{o}")
+           for o in ("sup", "mae", "jepa", "data2vec")}
+    has_ctl = all(ctl.values())
+    if has_ctl:
+        def mean_of(sc, ms):
+            return float(np.mean([sc[m] for m in ms]))
+        latent = ctl["jepa"] + ctl["data2vec"]
+        stats["ctl_latent_minus_sup"] = lambda sc: mean_of(sc, latent) - mean_of(sc, ctl["sup"])
+        stats["ctl_latent_minus_mae"] = lambda sc: mean_of(sc, latent) - mean_of(sc, ctl["mae"])
+        for o, ms in ctl.items():
+            stats[f"ctl_mean_{o}"] = (lambda sc, ms=ms: mean_of(sc, ms))
     boots = tr.bootstrap_window_stats(models, subjects, selected, stats, n_boot=n_boot)
     slopes = {w: _summ(b) for w, b in boots["slope"].items()}
     summary = {
@@ -219,6 +230,11 @@ def analyze(results_dir: str, pool: str = "grid4", n_depth: int = 8, n_boot: int
         summary["law_test"] = {"n_models": len(held), "members": held,
                                "prediction_sha256": lw.sha256(reg), **lt,
                                "verdict": lw.law_verdict(lt["law_rho"], lt["law_minus_params"])}
+    if has_ctl:
+        cs = {k: {w: _summ(b) for w, b in boots[k].items()} for k in boots if k.startswith("ctl_")}
+        summary["controlled"] = {"members": ctl, **cs,
+                                 "verdict": controlled_verdict(cs["ctl_latent_minus_sup"],
+                                                               cs["ctl_latent_minus_mae"])}
     # metric robustness: slope per subject; agreement of sign with the RSA slope
     summary["robustness"] = {}
     for m, by_model in robust.items():
@@ -235,6 +251,19 @@ def analyze(results_dir: str, pool: str = "grid4", n_depth: int = 8, n_boot: int
     return dict(rows=rows, mats=mats, curves=curves, summary=summary, subjects=subjects,
                 masks=masks,
                 times=times, slopes=slopes)
+
+
+def controlled_verdict(vs_sup: dict, vs_mae: dict) -> dict:
+    """Pre-specified rule for the controlled objective experiment (hrh/train.py).
+    H1 (primary): latent prediction (JEPA and data2vec, seeds averaged) exceeds BOTH
+    supervised and MAE networks in the early window (lower 95% bounds > 0).
+    H2: the same in the late window."""
+    def up(d, w):
+        return bool((d[w]["ci95"] or [np.nan])[0] > 0)
+    h1 = up(vs_sup, "early") and up(vs_mae, "early")
+    h2 = up(vs_sup, "late") and up(vs_mae, "late")
+    return {"H1_early": h1, "H2_late": h2,
+            "label": "supported" if h1 else "not supported"}
 
 
 def objective_verdict(contrast: dict) -> dict:
