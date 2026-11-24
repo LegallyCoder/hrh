@@ -111,18 +111,23 @@ def build(results_dir: str, paper_dir: str, reg_path: str) -> dict:
             explo["ablation"][name][w] = {"dev_cv": spec["cv_spearman"],
                                           "heldout": lw._spearman(hp, [obs[m][w] for m in held_m])}
 
-    # figures
-    pf.fig_spectral(os.path.join(figs, "spectral.pdf"), prox, FAMILY,
-                    {w: law["windows"][w]["b"] for w in WIN})
+    # figures: simple main-text versions, detailed versions for the appendix
+    bw = {w: law["windows"][w]["b"] for w in WIN}
+    pf.fig_spectral(os.path.join(figs, "theory2.pdf"), b_windows=bw)
+    pf.fig_depth(prox, FAMILY, os.path.join(figs, "depth.pdf"))
+    pf.fig_scale_simple(rows, summ["slope_vs_log10_params"], explo["variance"],
+                        os.path.join(figs, "scale.pdf"))
+    pf.fig_law_simple(held, FAMILY, summ["law_test"], os.path.join(figs, "law.pdf"))
+    pf.fig_measured(prox, FAMILY, bw, os.path.join(figs, "spectral_measured.pdf"))
     pf.fig_scale_objective(rows, summ["slope_vs_log10_params"],
-                           os.path.join(figs, "scale_objective.pdf"), set(held_m))
+                           os.path.join(figs, "scale_windows.pdf"), set(held_m))
     extremes = {}
     for w in WIN:
         srt = sorted(held_m, key=lambda m: obs[m][w])
         extremes[w] = [srt[0], srt[-1]]
     pf.fig_law(dev, held, FAMILY, summ.get("law_test"),
                {w: law["windows"][w]["cv"] for w in WIN},
-               os.path.join(figs, "law.pdf"), extremes)
+               os.path.join(figs, "law_full.pdf"), extremes)
     pf.fig_ablation(explo, os.path.join(figs, "ablation.pdf"))
 
     # macros

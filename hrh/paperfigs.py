@@ -427,3 +427,314 @@ def fig_depth(proxies: dict, family: dict, out_path: str):
     fig.subplots_adjust(right=0.93)
     fig.savefig(out_path)
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Simplified main-text figures: one message each
+# ---------------------------------------------------------------------------
+
+def _class_legend(fig, classes, y):
+    from matplotlib.lines import Line2D
+    h = [Line2D([], [], lw=0, marker=CLASS_MARKER[c], ms=5.2, mfc=CLASS_COLOR[c],
+                mec=CLASS_EDGE[c], mew=0.6) for c in classes]
+    fig.legend(h, [CLASS_LABEL[c] for c in classes], loc="lower center", ncol=len(h),
+               bbox_to_anchor=(0.5, y), columnspacing=1.6, handletextpad=0.35, frameon=False)
+
+
+def fig_scale_simple(rows: list[dict], slopes: dict, variance: dict, out_path: str):
+    """(a) scaling slopes; (b) alignment vs size, one line per family;
+    (c) share of between-model variance: family vs size within family."""
+    plt, _ = setup()
+    fig = plt.figure(figsize=(TEXT_W, 2.05))
+    gs = fig.add_gridspec(1, 3, width_ratios=[0.8, 1.45, 0.95], wspace=0.42)
+
+    ax = fig.add_subplot(gs[0])
+    for i, w in enumerate(WIN):
+        ax.axvspan(i - 0.42, i + 0.42, color=BAND[w], lw=0, zorder=0)
+        b = slopes[w]
+        ax.plot([i, i], b["ci95"], color=INK, lw=2.6, solid_capstyle="round", zorder=2)
+        ax.scatter(i, b["mean"], s=36, color=INK, edgecolor="white", lw=0.9, zorder=3)
+    ax.axhline(0, color=INK, lw=0.6)
+    ax.set_xticks(range(3), [WINDOW_LABEL[w] for w in WIN], fontsize=6.4)
+    ax.tick_params(axis="x", length=0)
+    ax.spines["bottom"].set_visible(False)
+    ax.set(xlim=(-0.6, 2.6), ylim=(-0.05, 0.05), ylabel="change per 10× parameters")
+    ygrid(ax)
+    title(ax, "a", "Effect of size")
+
+    ax = fig.add_subplot(gs[1])
+    by: dict[str, list[dict]] = {}
+    for r in rows:
+        by.setdefault(r["family"], []).append(r)
+    for fam, rr in by.items():
+        cls = FAMILY_CLASS.get(fam, "supervised")
+        rr = sorted(rr, key=lambda r: r["params_m"])
+        y = [np.mean([r[f"{w}_norm"] for w in WIN]) for r in rr]
+        x = [r["params_m"] for r in rr]
+        ax.plot(x, y, color=tint(CLASS_COLOR[cls], 0.7), lw=1.1, zorder=1)
+        ax.scatter(x, y, s=15, marker=CLASS_MARKER[cls], color=CLASS_COLOR[cls],
+                   edgecolor=CLASS_EDGE[cls], lw=0.5, zorder=2)
+    ax.set(xscale="log", xlabel="parameters (millions)", ylabel="alignment (mean of windows)")
+    ygrid(ax)
+    title(ax, "b", "Lines are flat, families differ")
+
+    ax = fig.add_subplot(gs[2])
+    ys = np.arange(3)[::-1]
+    fam = [100 * variance[w]["family"] for w in WIN]
+    size = [100 * variance[w]["size_within"] for w in WIN]
+    ax.barh(ys + 0.17, fam, height=0.32, color=CLASS_COLOR["latent"])
+    ax.barh(ys - 0.17, size, height=0.32, color=MUTED)
+    for y, f, s_ in zip(ys, fam, size):
+        ax.text(f + 2, y + 0.17, f"family {f:.0f}%", va="center", fontsize=6.2, color=INK)
+        ax.text(s_ + 2, y - 0.17, f"size {s_:.1f}%", va="center", fontsize=6.2, color=INK2)
+    ax.set_yticks(ys, [WINDOW_LABEL[w] for w in WIN])
+    ax.tick_params(axis="y", length=0)
+    ax.set(xlim=(0, 100), xlabel="variance explained (%)")
+    ax.set_xlim(0, 125)
+    ax.set_xticks([0, 25, 50, 75, 100])
+    ax.spines["left"].set_visible(False)
+    title(ax, "c", "Family vs. size")
+    present = [c for c in CLASS_ORDER if any(FAMILY_CLASS.get(r["family"]) == c for r in rows)]
+    _class_legend(fig, present, y=-0.2)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+def fig_law_simple(held: dict, family: dict, test: dict, out_path: str):
+    """Held-out models only: predicted vs observed per window, and the law vs size."""
+    plt, _ = setup()
+    fig = plt.figure(figsize=(TEXT_W, 2.1))
+    gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 0.85], wspace=0.38)
+    fig.subplots_adjust(right=0.92)
+    for k, w in enumerate(WIN):
+        ax = fig.add_subplot(gs[k])
+        hp = [v[w][0] for v in held.values()]
+        ho = [v[w][1] for v in held.values()]
+        for m, v in held.items():
+            cls = FAMILY_CLASS.get(family.get(m), "supervised")
+            ax.scatter(*v[w], s=30, marker=CLASS_MARKER[cls], color=CLASS_COLOR[cls],
+                       edgecolor=CLASS_EDGE[cls], lw=0.6, zorder=3)
+        c = np.polyfit(hp, ho, 1)
+        xx = np.linspace(min(hp), max(hp), 2)
+        ax.plot(xx, np.polyval(c, xx), color=INK, lw=0.9, ls=(0, (4, 2)), zorder=2)
+        best = max(held, key=lambda m: held[m][w][1])
+        _halo(ax.annotate(_short(best), held[best][w], xytext=(-4, 0), textcoords="offset points",
+                          ha="right", va="center", fontsize=5.8, color=INK2, zorder=6))
+        r = test["law_rho"][w]
+        ax.text(0.97, 0.05, rf"$\rho$ = {r['mean']:.2f}", transform=ax.transAxes, ha="right",
+                fontsize=7.2, color=INK, fontweight="bold")
+        ax.set_xlabel("predicted" if k == 1 else "")
+        if k == 0:
+            ax.set_ylabel("observed alignment")
+        ygrid(ax)
+        title(ax, "abc"[k], WINDOW_LABEL[w])
+
+    ax = fig.add_subplot(gs[3])
+    for i, w in enumerate(WIN):
+        for key, off, col, lab in (("law_rho", -0.13, CLASS_COLOR["latent"], "law"),
+                                   ("params_rho", 0.13, MUTED, "size")):
+            r = test[key][w]
+            ax.plot([i + off] * 2, r["ci95"], color=col, lw=2.4, solid_capstyle="round")
+            ax.scatter(i + off, r["mean"], s=28, color=col, edgecolor="white", lw=0.8, zorder=3)
+            if i == 0:
+                ax.text(i + off, r["ci95"][0] - 0.04, lab, ha="center", va="top",
+                        fontsize=6.2, color=col)
+    ax.axhline(0, color=INK, lw=0.6)
+    ax.set_xticks(range(3), [WINDOW_LABEL[w] for w in WIN], fontsize=6.4)
+    ax.tick_params(axis="x", length=0)
+    ax.spines["bottom"].set_visible(False)
+    ax.set(xlim=(-0.6, 2.6), ylim=(-0.8, 1.05))
+    ax.yaxis.tick_right()
+    ax.yaxis.set_label_position("right")
+    ax.set_ylabel(r"Spearman $\rho$ with observed")
+    ax.spines["left"].set_visible(False)
+    ax.spines["right"].set_visible(True)
+    ygrid(ax)
+    title(ax, "d", "Law vs. size")
+    present = [c for c in CLASS_ORDER if any(FAMILY_CLASS.get(family.get(m)) == c for m in held)]
+    _class_legend(fig, present, y=-0.2)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+def fig_measured(proxies: dict, family: dict, b_windows: dict, out_path: str):
+    """Appendix: exponent range (bar) and final-layer exponent (dot) of every model."""
+    plt, _ = setup()
+    fig = plt.figure(figsize=(TEXT_W * 0.7, 2.3))
+    ax = fig.add_subplot(111)
+    fam = family or {}
+    ms = sorted(proxies, key=lambda m: (CLASS_ORDER.index(FAMILY_CLASS.get(fam.get(m), "supervised")),
+                                        np.median(proxies[m]["alpha"])))
+    xs, prev, x = [], None, 0.0
+    for m in ms:                                   # a gap between objective classes
+        cls = FAMILY_CLASS.get(fam.get(m), "supervised")
+        x += 1.0 + (1.6 if prev is not None and cls != prev else 0.0)
+        xs.append(x)
+        prev = cls
+    xmax = xs[-1] + 1
+    for w in WIN:
+        ax.axhline(b_windows[w], color=MUTED, lw=0.7, ls=(0, (3, 2)), zorder=1)
+        ax.text(xmax + 0.8, b_windows[w] + 0.02, WINDOW_LABEL[w], fontsize=6.1, color=INK2,
+                va="bottom", style="italic")
+    top = 2.5
+    for x, m in zip(xs, ms):
+        cls = FAMILY_CLASS.get(fam.get(m), "supervised")
+        al = np.asarray(proxies[m]["alpha"], float)
+        al = al[np.isfinite(al)]
+        ax.plot([x, x], [al.min(), min(al.max(), top)], color=tint(CLASS_COLOR[cls], 0.6),
+                lw=1.7, solid_capstyle="round", zorder=2)
+        if al.max() > top:
+            ax.text(x, top + 0.04, "↑", ha="center", va="bottom", fontsize=5.5,
+                    color=CLASS_EDGE[cls])
+        ax.scatter(x, al[-1], s=9, color=CLASS_EDGE[cls], zorder=3, lw=0)
+    ax.set(xlim=(0, xmax + 4.2), ylim=(0, top + 0.2), xticks=[],
+           xlabel=f"{len(ms)} models, grouped by objective",
+           ylabel="measured layer exponents")
+    ax.spines["bottom"].set_visible(False)
+    ygrid(ax)
+    title(ax, "", "Measured exponents of real networks")
+    _legend(fig, CLASS_ORDER, y=-0.2)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Figure: convergence between models, by depth (PRH's own metric)
+# ---------------------------------------------------------------------------
+
+def fig_convergence(res: dict, family: dict, rows: list[dict], out_path: str):
+    """(a) within-family slope of convergence on size, by depth; (b,c) mutual-kNN
+    between all models at mid depth and at the readout, grouped by objective class;
+    (d) readout convergence against brain alignment."""
+    plt, cmap = setup()
+    models = res["models"]
+    fig = plt.figure(figsize=(TEXT_W, 2.05))
+    gs = fig.add_gridspec(1, 4, width_ratios=[0.95, 0.85, 0.85, 1.0], wspace=0.45)
+
+    ax = fig.add_subplot(gs[0])
+    ds = [float(d) for d in res["depths"]]
+    m = [res["slope_primary"][str(d)]["mean"] for d in ds]
+    lo = [res["slope_primary"][str(d)]["ci95"][0] for d in ds]
+    hi = [res["slope_primary"][str(d)]["ci95"][1] for d in ds]
+    ax.fill_between(ds, lo, hi, color=tint(INK, 0.15), lw=0)
+    ax.plot(ds, m, color=INK, lw=1.8, marker="o", ms=4)
+    ax.axhline(0, color=INK, lw=0.6)
+    ax.set(xticks=ds, xticklabels=["¼", "½", "¾", "out"], xlabel="relative depth",
+           ylabel="convergence change per 10×")
+    ygrid(ax)
+    title(ax, "a", "Where models converge")
+
+    order = sorted(range(len(models)), key=lambda i: (
+        CLASS_ORDER.index(FAMILY_CLASS.get(family.get(models[i]), "supervised")),
+        family.get(models[i], ""), models[i]))
+    vmax = max(np.max(np.array(res["matrices"][k])[np.triu_indices(len(models), 1)])
+               for k in res["matrices"])
+    for k, (key, lab, let) in enumerate((("0.5", "mid depth", "b"), ("1.0", "readout", "c"))):
+        ax = fig.add_subplot(gs[1 + k])
+        mat = np.array(res["matrices"][key])[np.ix_(order, order)].copy()
+        np.fill_diagonal(mat, np.nan)
+        ax.imshow(mat, cmap=cmap, vmin=0, vmax=vmax, interpolation="nearest")
+        bounds = [0]
+        for i in range(1, len(order)):
+            a = FAMILY_CLASS.get(family.get(models[order[i - 1]]))
+            b = FAMILY_CLASS.get(family.get(models[order[i]]))
+            if a != b:
+                bounds.append(i)
+                ax.axhline(i - 0.5, color="white", lw=0.8)
+                ax.axvline(i - 0.5, color="white", lw=0.8)
+        bounds.append(len(order))
+        for s0, s1 in zip(bounds[:-1], bounds[1:]):
+            cls = FAMILY_CLASS.get(family.get(models[order[s0]]))
+            ax.plot([-2.2, -2.2], [s0 - 0.3, s1 - 0.7], color=CLASS_COLOR[cls], lw=2.4,
+                    solid_capstyle="butt", clip_on=False)
+        ax.set(xticks=[], yticks=[], xlim=(-3, len(order) - 0.5))
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+        title(ax, let, lab)
+
+    ax = fig.add_subplot(gs[3])
+    by = {r["model"]: r for r in rows}
+    cent = res["centrality"]["1.0"]
+    xs, ys = [], []
+    for mdl in models:
+        if mdl not in by:
+            continue
+        cls = FAMILY_CLASS.get(family.get(mdl), "supervised")
+        y = np.mean([by[mdl][f"{w}_norm"] for w in WIN])
+        ax.scatter(cent[mdl], y, s=16, marker=CLASS_MARKER[cls], color=CLASS_COLOR[cls],
+                   edgecolor=CLASS_EDGE[cls], lw=0.5, zorder=3)
+        xs.append(cent[mdl])
+        ys.append(y)
+    from .law import _spearman
+    ax.text(0.97, 0.05, rf"$\rho$ = {_spearman(xs, ys):.2f}", transform=ax.transAxes,
+            ha="right", fontsize=7, color=INK, fontweight="bold")
+    ax.set(xlabel="convergence with other models", ylabel="brain alignment")
+    ygrid(ax)
+    title(ax, "d", "Convergence vs. brain")
+    present = [c for c in CLASS_ORDER if any(FAMILY_CLASS.get(family.get(x)) == c for x in models)]
+    _class_legend(fig, present, y=-0.2)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Figure: when each objective matches the brain
+# ---------------------------------------------------------------------------
+
+def fig_time(npz_path: str, family: dict, out_path: str, examples: dict | None = None):
+    """(a) best-layer alignment over brain time, median per objective class;
+    (b-d) layer x time alignment of example models."""
+    plt, cmap = setup()
+    z = np.load(npz_path, allow_pickle=False)
+    times = z["times_ms"]
+    mats = {k: z[k] for k in z.files if k != "times_ms"}
+    keymap = {}
+    for m in family:
+        k = m.replace(":", "_")
+        if k in mats:
+            keymap[m] = k
+    examples = examples or {}
+    ncol = 1 + len(examples)
+    fig = plt.figure(figsize=(TEXT_W, 2.0))
+    gs = fig.add_gridspec(1, ncol, width_ratios=[1.6] + [1] * len(examples), wspace=0.32)
+
+    ax = fig.add_subplot(gs[0])
+    for w, (a, b) in {"early": (50, 120), "mid": (120, 250), "late": (250, 600)}.items():
+        ax.axvspan(a, b, color=BAND[w], lw=0, zorder=0)
+    ax.axvline(0, color=MUTED, lw=0.6, ls=(0, (1, 1.5)))
+    curves: dict[str, list] = {}
+    for m, k in keymap.items():
+        curves.setdefault(FAMILY_CLASS.get(family[m], "supervised"), []).append(mats[k].max(0))
+    ends = []
+    for cls in CLASS_ORDER:
+        if cls not in curves:
+            continue
+        c = np.stack(curves[cls])
+        med = np.median(c, 0)
+        ax.plot(times, med, color=CLASS_EDGE[cls], lw=1.6)
+        k = int(np.argmax(med))
+        ends.append((med.max(), cls, times[k]))
+    for v, cls, t in ends:
+        _halo(ax.text(t + 12, v, CLASS_SHORT[cls], fontsize=6, color=CLASS_EDGE[cls],
+                      va="bottom"))
+    ax.set(xlim=(-100, 700), xlabel="time from stimulus onset (ms)",
+           ylabel="best-layer alignment (RSA)")
+    ygrid(ax)
+    title(ax, "a", "When each objective matches")
+
+    vmax = max(mats[keymap[m]].max() for m in examples if m in keymap) if examples else 1
+    for i, (m, lab) in enumerate(examples.items()):
+        if m not in keymap:
+            continue
+        ax = fig.add_subplot(gs[1 + i])
+        A = mats[keymap[m]]
+        ax.imshow(A, aspect="auto", origin="lower", cmap=cmap, vmin=0, vmax=vmax,
+                  extent=[times[0], times[-1], 0, 1])
+        ax.axvline(0, color="white", lw=0.6, ls=(0, (1, 1.5)))
+        ax.set(xlim=(-100, 700), yticks=[0, 1], yticklabels=["in", "out"] if i == 0 else [],
+               xlabel="ms" if i == len(examples) // 2 else "")
+        if i == 0:
+            ax.set_ylabel("layer depth")
+        title(ax, "bcd"[i], lab)
+    fig.savefig(out_path)
+    plt.close(fig)
