@@ -36,10 +36,18 @@ MEAN, STD = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
 # Data
 # ---------------------------------------------------------------------------
 
+DATA_VERSION = 2          # 2: images stored in a shuffled order (v1 was class-sorted)
+
+
 def prepare_data(cache_dir: str, split: str = "train", limit: int | None = None) -> tuple[str, str]:
-    """Decode the parquet shards into (N, 64, 64, 3) uint8 memmap + int16 labels."""
+    """Decode the parquet shards into an (N, 64, 64, 3) uint8 memmap + int16 labels, stored
+    in a SHUFFLED order: the source is sorted by class, and training reads contiguous
+    chunks (BufferedBatches), so every chunk must already mix classes.
+    Each shard is shuffled in memory and written to positions spread uniformly over the
+    file (writes stay nearly sequential)."""
     os.makedirs(cache_dir, exist_ok=True)
-    xp, yp = (os.path.join(cache_dir, f"{split}_x.u8"), os.path.join(cache_dir, f"{split}_y.npy"))
+    xp = os.path.join(cache_dir, f"{split}_x_v{DATA_VERSION}.u8")
+    yp = os.path.join(cache_dir, f"{split}_y_v{DATA_VERSION}.npy")
     if os.path.exists(xp) and os.path.exists(yp):
         return xp, yp
     from huggingface_hub import snapshot_download
@@ -47,32 +55,41 @@ def prepare_data(cache_dir: str, split: str = "train", limit: int | None = None)
     from PIL import Image
     root = snapshot_download(HF_DATASET, repo_type="dataset", allow_patterns=[f"data/{split}-*"])
     files = sorted(glob.glob(os.path.join(root, "data", f"{split}-*.parquet")))
-    n = sum(pq.ParquetFile(f).metadata.num_rows for f in files)
-    n = min(n, limit) if limit else n
+    counts = [pq.ParquetFile(f).metadata.num_rows for f in files]
+    if limit:
+        counts = [min(c, max(0, limit - sum(counts[:k]))) for k, c in enumerate(counts)]
+    n = sum(counts)
+    rng = np.random.default_rng(12345)
+    owner = rng.permutation(np.repeat(np.arange(len(files)), counts))   # which shard fills each slot
     x = np.lib.format.open_memmap(xp + ".npy", mode="w+", dtype=np.uint8, shape=(n, IMG, IMG, 3))
     y = np.zeros(n, np.int16)
-    i = 0
-    for f in files:
+    done = 0
+    for k, f in enumerate(files):
+        if counts[k] == 0:
+            continue
         tab = pq.read_table(f)
         cols = tab.column_names
         icol = "image" if "image" in cols else cols[0]
         lcol = "label" if "label" in cols else cols[1]
-        for img, lab in zip(tab.column(icol).to_pylist(), tab.column(lcol).to_pylist()):
-            if i >= n:
-                break
+        imgs = tab.column(icol).to_pylist()[:counts[k]]
+        labs = tab.column(lcol).to_pylist()[:counts[k]]
+        buf = np.empty((len(imgs), IMG, IMG, 3), np.uint8)
+        for i, img in enumerate(imgs):
             b = img["bytes"] if isinstance(img, dict) else img
             im = Image.open(io.BytesIO(b)).convert("RGB")
             if im.size != (IMG, IMG):
                 im = im.resize((IMG, IMG), Image.BICUBIC)
-            x[i] = np.asarray(im)
-            y[i] = lab
-            i += 1
-        print(f"[data] {split}: {i}/{n}", flush=True)
-        if i >= n:
-            break
+            buf[i] = np.asarray(im)
+        perm = rng.permutation(len(imgs))
+        slots = np.flatnonzero(owner == k)                                 # sorted, spread out
+        x[slots] = buf[perm]
+        y[slots] = np.asarray(labs, np.int16)[perm]
+        done += len(imgs)
+        del tab, imgs, buf
+        print(f"[data] {split}: {done}/{n}", flush=True)
     x.flush()
     os.replace(xp + ".npy", xp)
-    np.save(yp, y[:i])
+    np.save(yp, y)
     return xp, yp
 
 
@@ -344,6 +361,9 @@ def train(objective: str, seed: int, data_dir: str, out_dir: str, epochs: int = 
     name = run_name(objective, seed)
     ck = os.path.join(out_dir, f"{name}.pt")
     step = 0
+    if os.path.exists(ck) and torch.load(ck, map_location="cpu").get("data_version") != DATA_VERSION:
+        print(f"[train] {name}: checkpoint from an older data version; starting fresh", flush=True)
+        os.replace(ck, ck + ".stale")
     if os.path.exists(ck):
         state = torch.load(ck, map_location=dev)
         model.load_state_dict(state["model"])
@@ -393,6 +413,7 @@ def train(objective: str, seed: int, data_dir: str, out_dir: str, epochs: int = 
             tmp = ck + ".tmp"
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                         "scaler": scaler.state_dict(), "step": step, "objective": objective,
+                        "data_version": DATA_VERSION,
                         "seed": seed, "total": total}, tmp)
             os.replace(tmp, ck)
     with open(os.path.join(out_dir, f"{name}.json"), "w") as fh:
